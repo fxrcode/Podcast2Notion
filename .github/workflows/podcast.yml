@@ -4,29 +4,33 @@ on:
   workflow_dispatch:
   schedule:
     - cron: "0 0 * * *"
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
 jobs:
   sync:
     name: Sync
     runs-on: ubuntu-latest
     env:
-        NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
-        NOTION_PAGE: ${{ secrets.NOTION_PAGE }}
-        REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
+      NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+      NOTION_PAGE: ${{ secrets.NOTION_PAGE }}
+      REFRESH_TOKEN: ${{ secrets.REFRESH_TOKEN }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: 3.9
+          python-version: "3.12"
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
       - name: podcast sync
         run: |
           python -u scripts/podcast.py
