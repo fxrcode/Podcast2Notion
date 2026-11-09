@@ -156,6 +156,31 @@ def check_eposide(eid):
         return response["results"][0].get("id")
 
 
+def get_existing_episodes():
+    """一次性读取已有Episode，返回 {eid: (page_id, 状态, 喜欢)}，用于增量对比"""
+    existing = {}
+    start_cursor = None
+    while True:
+        response = notion_helper.query(
+            database_id=notion_helper.episode_database_id,
+            start_cursor=start_cursor,
+            page_size=100,
+        )
+        for page in response.get("results"):
+            props = page.get("properties")
+            rich = (props.get("Eid") or {}).get("rich_text") or []
+            if not rich:
+                continue
+            eid = "".join(x.get("plain_text", "") for x in rich)
+            status = ((props.get("状态") or {}).get("status") or {}).get("name")
+            liked = bool((props.get("喜欢") or {}).get("checkbox"))
+            existing[eid] = (page.get("id"), status, liked)
+        if not response.get("has_more"):
+            break
+        start_cursor = response.get("next_cursor")
+    return existing
+
+
 def get_timestamp(id):
     """检查是否已经插入过"""
     filter = {"property": "Podcast", "relation": {"contains": id}}
@@ -253,9 +278,22 @@ def insert_podcast():
 
 def insert_episode(episodes, d):
     episodes.sort(key=lambda x: x["pubDate"])
+    existing = get_existing_episodes()
+    print(f"Notion已有{len(existing)}个Episode")
+    skipped = 0
     for index, result in enumerate(episodes):
         pid = result.get("pid")
         if pid not in d:
+            continue
+        eid = result.get("eid")
+        status = "未听"
+        if result.get("isFinished"):
+            status = "听过"
+        elif result.get("isPlayed"):
+            status = "在听"
+        old = existing.get(eid)
+        if old and old[1] == status and old[2] == bool(result.get("isPicked")):
+            skipped += 1
             continue
         episode = {}
         episode["标题"] = result.get("title")
@@ -284,13 +322,14 @@ def insert_episode(episodes, d):
             "database_id": notion_helper.episode_database_id,
             "type": "database_id",
         }
-        page_id = check_eposide(eid)
+        page_id = old[0] if old else None
         if page_id:
             notion_helper.update_page(page_id=page_id, properties=properties)
         else:
             notion_helper.create_page(
                 parent=parent, properties=properties, icon=get_icon(d.get(pid)[1])
             )
+    print(f"跳过{skipped}个无变化的Episode")
 
 
 if __name__ == "__main__":

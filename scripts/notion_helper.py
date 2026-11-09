@@ -19,6 +19,35 @@ from utils import (
     get_title,
 )
 
+MIN_REQUEST_INTERVAL = 0.35  # Notion allows ~3 requests/second
+_last_request = 0.0
+
+
+def _throttle():
+    global _last_request
+    wait = MIN_REQUEST_INTERVAL - (time.monotonic() - _last_request)
+    if wait > 0:
+        time.sleep(wait)
+    _last_request = time.monotonic()
+
+
+def notion_retry(f):
+    """Throttle calls and retry with exponential backoff (handles 429 rate limits)."""
+
+    @retry(
+        stop_max_attempt_number=8,
+        wait_exponential_multiplier=2000,
+        wait_exponential_max=60000,
+    )
+    def wrapped(*args, **kwargs):
+        _throttle()
+        return f(*args, **kwargs)
+
+    wrapped.__name__ = f.__name__
+    wrapped.__doc__ = f.__doc__
+    return wrapped
+
+
 TAG_ICON_URL = "https://www.notion.so/icons/tag_gray.svg"
 USER_ICON_URL = "https://www.notion.so/icons/user-circle-filled_gray.svg"
 TARGET_ICON_URL = "https://www.notion.so/icons/target_red.svg"
@@ -80,7 +109,7 @@ class NotionHelper:
             # 如果子块有子块，递归调用函数
             if "has_children" in child and child["has_children"]:
                 self.search_database(child["id"])
-    @retry(stop_max_attempt_number=3, wait_fixed=5000)
+    @notion_retry
     def update_image_block_link(self, block_id, new_image_url):
         # 更新 image block 的链接
         self.client.blocks.update(
@@ -138,7 +167,7 @@ class NotionHelper:
             day, self.day_database_id, TARGET_ICON_URL, properties
         )
     
-    @retry(stop_max_attempt_number=3, wait_fixed=5000)
+    @notion_retry
     def get_relation_id(self, name, id, icon, properties={}):
         key = f"{id}{name}"
         if key in self.__cache:
@@ -158,46 +187,46 @@ class NotionHelper:
 
 
 
-    @retry(stop_max_attempt_number=3, wait_fixed=5000)
+    @notion_retry
     def update_book_page(self, page_id, properties):
         return self.client.pages.update(page_id=page_id, properties=properties)
 
-    @retry(stop_max_attempt_number=3, wait_fixed=5000)
+    @notion_retry
     def update_page(self, page_id, properties):
         return self.client.pages.update(
             page_id=page_id, properties=properties
         )
 
-    @retry(stop_max_attempt_number=3, wait_fixed=5000)
+    @notion_retry
     def create_page(self, parent, properties, icon):
         return self.client.pages.create(parent=parent, properties=properties, icon=icon,cover=icon)
 
-    @retry(stop_max_attempt_number=3, wait_fixed=5000)
+    @notion_retry
     def query(self, **kwargs):
         kwargs = {k: v for k, v in kwargs.items() if v}
         return self.client.databases.query(**kwargs)
 
-    @retry(stop_max_attempt_number=3, wait_fixed=5000)
+    @notion_retry
     def get_block_children(self, id):
         response = self.client.blocks.children.list(id)
         return response.get("results")
 
-    @retry(stop_max_attempt_number=3, wait_fixed=5000)
+    @notion_retry
     def append_blocks(self, block_id, children):
         return self.client.blocks.children.append(block_id=block_id, children=children)
 
-    @retry(stop_max_attempt_number=3, wait_fixed=5000)
+    @notion_retry
     def append_blocks_after(self, block_id, children, after):
         return self.client.blocks.children.append(
             block_id=block_id, children=children, after=after
         )
 
-    @retry(stop_max_attempt_number=3, wait_fixed=5000)
+    @notion_retry
     def delete_block(self, block_id):
         return self.client.blocks.delete(block_id=block_id)
 
 
-    @retry(stop_max_attempt_number=3, wait_fixed=5000)
+    @notion_retry
     def query_all(self, database_id, filter):
         results = []
         has_more = True
